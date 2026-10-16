@@ -406,9 +406,11 @@ h2{font-size:1.9rem}
       <li>Say one word. The next word must start with the <b>last letter</b> of the word before. <span class="muted">cat → tiger → rabbit → tulip</span></li>
       <li>No repeats. A word can only be used once per game.</li>
       <li>Beat the clock. If time runs out, or you pass, you lose a life. Lose all your lives and you are out.</li>
-      <li>Last player standing wins. With a word limit, the top score wins.</li>
+      <li>By default the last player standing wins. You can also play to a points target, a game clock, or a word limit.</li>
     </ol>
     <h3 style="margin:14px 0 8px">Rules you can switch on</h3>
+    <h3 style="margin:4px 0 8px">Who wins</h3>
+    <p>Pick it in the rules, before or during a game. <b>Last standing</b>: the final player with lives left. <b>First to points</b>: first to reach the target score (200 to 5000). <b>Top score in time</b>: highest score when the game clock (1 to 15 minutes) runs out. <b>Top score by word limit</b>: highest score after 10 to 100 words.</p>
     <p><b>Every 5th word grows.</b> Word 5 needs 6+ letters, word 10 needs 7+, word 15 needs 8+, and it keeps climbing.</p>
     <p><b>Category.</b> Every word must fit a theme like Animals or Food. If no unused theme word starts with the needed letter, any word counts for that turn.</p>
     <p><b>Speed up.</b> The timer drops by one second every 10 words, down to 4 seconds.</p>
@@ -556,12 +558,14 @@ document.addEventListener('click', e => {
 });
 
 // ============================================================ RULES
-const RULE_DEFAULTS = { time: 12, minLen: 3, lives: 3, dict: true, noNames: true, fifth: true, speedUp: false, category: null, wordLimit: 0 };
+const RULE_DEFAULTS = { winBy: 'last', target: 500, clockMin: 3, wordLimit: 30, time: 12, minLen: 3, lives: 3, dict: true, noNames: true, fifth: true, speedUp: false, category: null };
 const MODES = {
   classic:  { name: 'Classic',  desc: 'Last player standing wins.', rules: {} },
   survival: { name: 'Survival', desc: 'The clock gets faster every 10 words.', rules: { speedUp: true, time: 12 } },
   category: { name: 'Category', desc: 'Every word must fit one theme.', rules: { category: 'Animals', time: 15, minLen: 3, fifth: false } },
-  sprint:   { name: 'Word Race', desc: 'First to the limit: 30 words, top score wins.', rules: { wordLimit: 30, lives: 5 } },
+  sprint:   { name: 'Word Race', desc: 'Top score after 30 words wins.', rules: { winBy: 'words', wordLimit: 30, lives: 5 } },
+  points:   { name: 'Score Rush', desc: 'First player to 500 points wins.', rules: { winBy: 'points', target: 500, lives: 5 } },
+  clock:    { name: 'Beat the Clock', desc: 'Top score after 3 minutes wins.', rules: { winBy: 'clock', clockMin: 3, lives: 5 } },
 };
 let setup = store.get('setup', null) || {
   mode: 'classic',
@@ -571,11 +575,17 @@ let setup = store.get('setup', null) || {
     { name: 'Mochi', char: 'mochi', type: 'medium' },
   ]
 };
+if (setup.rules && !setup.rules.winBy) setup.rules.winBy = setup.rules.wordLimit ? 'words' : 'last';
 setup.rules = { ...RULE_DEFAULTS, ...setup.rules };
+if (!setup.rules.wordLimit) setup.rules.wordLimit = 30;
 const saveSetup = () => store.set('setup', setup);
 
 const RULE_UI = [
-  { key: 'time', label: 'Turn timer', help: 'Seconds per turn', opts: [[5, '5s'], [8, '8s'], [12, '12s'], [15, '15s'], [20, '20s'], [30, '30s'], [0, 'Off']] },
+  { key: 'winBy', win: true, label: 'Who wins', help: 'Choose what decides the winner', opts: [['last', 'Last standing'], ['points', 'First to points'], ['clock', 'Top score in time'], ['words', 'Top score by word limit']] },
+  { key: 'target', win: true, when: r => r.winBy === 'points', label: 'Points to win', help: 'First player to reach this score wins', opts: [[200, '200'], [300, '300'], [500, '500'], [1000, '1000'], [2000, '2000'], [5000, '5000']] },
+  { key: 'clockMin', win: true, when: r => r.winBy === 'clock', label: 'Game time', help: 'Highest score when time runs out wins', opts: [[1, '1 min'], [2, '2 min'], [3, '3 min'], [5, '5 min'], [10, '10 min'], [15, '15 min']] },
+  { key: 'wordLimit', win: true, when: r => r.winBy === 'words', label: 'Word limit', help: 'Highest score after this many words wins', opts: [[10, '10'], [20, '20'], [30, '30'], [50, '50'], [100, '100']] },
+  { key: 'time', label: 'Turn timer', help: 'Seconds per turn', opts: [[3, '3s'], [5, '5s'], [8, '8s'], [10, '10s'], [12, '12s'], [15, '15s'], [20, '20s'], [30, '30s'], [60, '60s'], [0, 'Off']] },
   { key: 'minLen', label: 'Shortest word', help: 'Minimum letters', opts: [[2, '2'], [3, '3'], [4, '4'], [5, '5'], [6, '6']] },
   { key: 'lives', label: 'Lives', help: 'Set before the game starts', opts: [[1, '1'], [3, '3'], [5, '5']], setupOnly: true },
   { key: 'fifth', label: 'Every 5th word grows', help: 'Word 5 needs 6+ letters, word 10 needs 7+, and so on', toggle: true },
@@ -583,10 +593,9 @@ const RULE_UI = [
   { key: 'dict', label: 'Real words only', help: 'Check every word against the dictionary', toggle: true },
   { key: 'noNames', label: 'No proper names', help: 'Reject people, places and brands', toggle: true },
   { key: 'category', label: 'Category', help: 'Every word must fit the theme', opts: [[null, 'Off'], ...CAT_NAMES.map(c => [c, c])] },
-  { key: 'wordLimit', label: 'Word limit', help: 'Game ends after this many words; top score wins', opts: [[0, '∞'], [20, '20'], [30, '30'], [50, '50'], [100, '100']] },
 ];
-function renderRules(el, rules, { live = false, onChange } = {}) {
-  el.innerHTML = RULE_UI.map(r => {
+function renderRules(el, rules, { live = false, noWin = false, onChange } = {}) {
+  el.innerHTML = RULE_UI.filter(r => (!r.when || r.when(rules)) && !(noWin && r.win)).map(r => {
     const dis = live && r.setupOnly;
     let ctl;
     if (r.toggle) ctl = `<button type="button" class="switch" role="switch" aria-checked="${!!rules[r.key]}" data-k="${r.key}" aria-label="${r.label}"></button>`;
@@ -601,7 +610,7 @@ function renderRules(el, rules, { live = false, onChange } = {}) {
     const k = b.dataset.k;
     rules[k] = b.classList.contains('switch') ? !rules[k] : JSON.parse(b.dataset.v);
     sfx.tap();
-    renderRules(el, rules, { live, onChange });
+    renderRules(el, rules, { live, noWin, onChange });
     onChange && onChange();
   };
 }
@@ -770,7 +779,9 @@ function startGame(opts) {
     cur: 0, used: new Set(), chain: [], count: 0, word: '', turnId: 0,
     deadline: 0, turnLen: 0, paused: false, pausedLeft: 0, over: false, lastHuman: -1,
     hintUsed: false, youWords: 0, blitzEnd: 0,
+    clockLeft: rules.clockMin * 60000, clockMin: rules.clockMin, clockLast: performance.now(),
   };
+  G.clockTimer = setInterval(clockTick, 250);
   newStartWord();
   $('progress').hidden = !(G.kind === 'stage');
   $('hintBtn').hidden = !(G.kind === 'stage' || blitz || G.players.filter(p => !p.bot).length === 1);
@@ -790,9 +801,20 @@ function newStartWord() {
 function stopGame() {
   if (!G) return;
   G.over = true; G.turnId++;
-  cancelAnimationFrame(rafId);
+  cancelAnimationFrame(rafId); clearInterval(G.clockTimer);
   $('pauseSheet').hidden = true; $('handoff').hidden = true;
 }
+const usesWin = () => G.kind !== 'stage' && G.kind !== 'blitz';
+function clockTick() {
+  if (!G || G.over) return;
+  const now = performance.now(), dt = now - G.clockLast; G.clockLast = now;
+  if (!usesWin() || G.rules.winBy !== 'clock') return;
+  if (G.rules.clockMin !== G.clockMin) { G.clockMin = G.rules.clockMin; G.clockLeft = G.clockMin * 60000; }
+  if (!G.paused && $('handoff').hidden) G.clockLeft -= dt;
+  renderSub();
+  if (G.clockLeft <= 0) { G.clockLeft = 0; endGame(); }
+}
+const mmss = ms => { const t = Math.ceil(ms / 1000); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
 const letter = () => G.word.at(-1);
 function reqLen() {
   const n = G.count + 1;
@@ -936,7 +958,8 @@ function accept(w) {
   setTimeout(() => fs.remove(), 1000);
   // end conditions
   if (G.kind === 'stage' && G.youWords >= G.opts.stage.target) return setTimeout(endGame, 700);
-  if (G.rules.wordLimit && G.count >= G.rules.wordLimit && G.kind !== 'blitz') return setTimeout(endGame, 700);
+  if (usesWin() && G.rules.winBy === 'words' && G.count >= G.rules.wordLimit) return setTimeout(endGame, 700);
+  if (usesWin() && G.rules.winBy === 'points' && p.score >= G.rules.target) return setTimeout(endGame, 700);
   setTimeout(() => { if (!G.over) nextPlayer(); }, G.kind === 'blitz' ? 250 : 750);
 }
 
@@ -1045,7 +1068,7 @@ $('pauseBtn').onclick = () => {
   if (!G || G.over) return;
   G.paused = true; cancelAnimationFrame(rafId);
   if (G.kind === 'blitz') G.pausedLeft = G.blitzEnd - performance.now();
-  renderRules($('liveRules'), G.rules, { live: true });
+  renderRules($('liveRules'), G.rules, { live: true, noWin: !usesWin() });
   $('pauseSheet').hidden = false;
 };
 $('resumeBtn').onclick = () => {
@@ -1069,13 +1092,7 @@ $('pauseSheet').addEventListener('click', e => { if (e.target.id === 'pauseSheet
 
 // ---------- rendering
 function renderGame(fresh = false) {
-  const titles = { classic: 'Classic', survival: 'Survival', category: 'Category', sprint: 'Word Race', blitz: '60s Blitz' };
-  $('gMode').textContent = G.kind === 'stage' ? `Stage ${G.opts.stage.n}` : titles[G.kind];
-  const sub = [`Word ${G.count + 1}`];
-  if (G.rules.wordLimit && G.kind !== 'blitz') sub[0] += ` of ${G.rules.wordLimit}`;
-  if (G.kind === 'stage') sub.push(`${G.youWords}/${G.opts.stage.target} your words`);
-  if (G.kind === 'blitz') sub.push(`${curP().score} pts`);
-  $('gSub').textContent = sub.join(' · ');
+  renderSub();
   if (G.kind === 'stage') $('progressBar').style.width = (100 * G.youWords / G.opts.stage.target) + '%';
   // current word tiles
   const w = G.word.toUpperCase();
@@ -1097,6 +1114,22 @@ function renderGame(fresh = false) {
   const ch = $('chain'); ch.scrollLeft = ch.scrollWidth;
   renderPlayersStage();
 }
+function renderSub() {
+  const titles = { classic: 'Classic', survival: 'Survival', category: 'Category', sprint: 'Word Race', points: 'Score Rush', clock: 'Beat the Clock', blitz: '60s Blitz' };
+  $('gMode').textContent = G.kind === 'stage' ? `Stage ${G.opts.stage.n}` : titles[G.kind];
+  const sub = [`Word ${G.count + 1}`];
+  if (usesWin()) {
+    const r = G.rules;
+    if (r.winBy === 'words') sub[0] += ` of ${r.wordLimit}`;
+    if (r.winBy === 'points') sub.push(`First to ${r.target} pts`);
+    if (r.winBy === 'clock') sub.push(`⏱ ${mmss(G.clockLeft)} left`);
+    if (r.winBy === 'last') sub.push('Last one standing');
+  }
+  if (G.kind === 'stage') sub.push(`${G.youWords}/${G.opts.stage.target} your words`);
+  if (G.kind === 'blitz') sub.push(`${curP().score} pts`);
+  $('gSub').textContent = sub.join(' · ');
+  $('gSub').style.color = usesWin() && G.rules.winBy === 'clock' && G.clockLeft < 30000 ? 'var(--coral)' : '';
+}
 function renderPlayersStage() {
   const show = G.kind === 'blitz' ? [G.players[0]] : G.players;
   $('playersStage').innerHTML = show.map((p, i) => {
@@ -1114,9 +1147,10 @@ function renderPlayersStage() {
 // ---------- end
 function endGame() {
   if (!G || G.over && $('result').classList.contains('active')) return;
-  G.over = true; G.turnId++; cancelAnimationFrame(rafId);
+  G.over = true; G.turnId++; cancelAnimationFrame(rafId); clearInterval(G.clockTimer);
   $('pauseSheet').hidden = true; $('handoff').hidden = true;
-  const ranked = [...G.players].sort((a, b) => (b.alive - a.alive) || (b.score - a.score));
+  const byScore = usesWin() && G.rules.winBy !== 'last' && G.players.filter(x => x.alive).length > 1;
+  const ranked = [...G.players].sort((a, b) => byScore ? (b.score - a.score) || (b.alive - a.alive) : (b.alive - a.alive) || (b.score - a.score));
   let title, sub, stars = -1, hero = ranked[0], primary = 'Play again', winSound = true;
   const longest = G.chain.filter(c => c.p >= 0).reduce((a, c) => c.w.length > a.length ? c.w : a, '');
   if (G.kind === 'stage') {
@@ -1143,7 +1177,11 @@ function endGame() {
   } else {
     const humansIn = G.players.some(p => !p.bot);
     title = hero.name.trim().toLowerCase() === 'you' ? 'You win!' : `${hero.name} wins!`;
-    sub = G.rules.wordLimit && G.count >= G.rules.wordLimit ? `Top score after ${G.count} words` : `Last one standing after ${G.count} words`;
+    const alive = G.players.filter(x => x.alive).length;
+    if (!byScore) sub = alive <= 1 ? `Last one standing after ${G.count} words` : `Top score after ${G.count} words`;
+    else if (G.rules.winBy === 'points') sub = hero.score >= G.rules.target ? `First to ${G.rules.target} points` : `Top score after ${G.count} words`;
+    else if (G.rules.winBy === 'clock') sub = G.clockLeft <= 0 ? `Top score when the ${G.rules.clockMin}-minute clock ran out` : `Top score after ${G.count} words`;
+    else sub = `Top score after ${G.count} words`;
     hero.mood = 'happy';
     winSound = !hero.bot || !humansIn;
   }
